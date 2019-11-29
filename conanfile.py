@@ -1,62 +1,119 @@
-from conans import ConanFile, CMake, tools
+from conans import ConanFile, Meson, tools
 import os
+import shutil
 
 
 class LibnameConan(ConanFile):
-    name = "libname"
-    description = "Keep it short"
-    topics = ("conan", "libname", "logging")
-    url = "https://github.com/bincrafters/conan-libname"
-    homepage = "https://github.com/original_author/original_lib"
-    license = "MIT"  # Indicates license type of the packaged library; please use SPDX Identifiers https://spdx.org/licenses/
-    # Remove following lines if the target lib does not use CMake
-    exports_sources = ["CMakeLists.txt"]
-    generators = "cmake"
+    name = "libdrm"
+    description = "User space library for accessing the Direct Rendering Manager, on operating systems that support the ioctl interface"
+    topics = ("conan", "libdrm", "graphics")
+    url = "https://github.com/bincrafters/conan-libdrm"
+    homepage = "https://gitlab.freedesktop.org/mesa/drm"
+    license = "MIT"
 
-    # Options may need to change depending on the packaged library
     settings = "os", "arch", "compiler", "build_type"
-    options = {"shared": [True, False], "fPIC": [True, False]}
-    default_options = {"shared": False, "fPIC": True}
+    options = {
+        "shared": [True, False],
+        "fPIC": [True, False],
+        "libkms": [True, False],
+        "intel": [True, False],
+        "radeon": [True, False],
+        "amdgpu": [True, False],
+        "nouveau": [True, False],
+        "vmwgfx": [True, False],
+        "omap": [True, False],
+        "exynos": [True, False],
+        "freedreno": [True, False],
+        "tegra": [True, False],
+        "vc4": [True, False],
+        "etnaviv": [True, False],
+        "valgrind": [True, False],
+        "freedreno-kgsl": [True, False],
+        "udev": [True, False]
+    }
+    default_options = {
+        "shared": False,
+        "fPIC": True,
+        "libkms": True,
+        "intel": True,
+        "radeon": True,
+        "amdgpu": True,
+        "nouveau": True,
+        "vmwgfx": True,
+        "omap": False,
+        "exynos": False,
+        "freedreno": True,
+        "tegra": False,
+        "vc4": True,
+        "etnaviv": False,
+        "valgrind": False,
+        "freedreno-kgsl": False,
+        "udev": False
+    }
 
     _source_subfolder = "source_subfolder"
     _build_subfolder = "build_subfolder"
 
-    requires = (
-        "zlib/1.2.11"
-    )
+    def build_requirements(self):
+        if not tools.which("meson"):
+            self.build_requires("meson/0.52.0")
+        if not tools.which('pkg-config'):
+            self.build_requires('pkg-config_installer/0.29.2@bincrafters/stable')
+    
+    def requirements(self):
+        if self.options.intel:
+            self.requires("libpciaccess/0.16@bincrafters/stable")
 
     def config_options(self):
         if self.settings.os == 'Windows':
             del self.options.fPIC
+    
+    def configure(self):
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def source(self):
         tools.get(**self.conan_data["sources"][self.version])
         extracted_dir = self.name + "-" + self.version
         os.rename(extracted_dir, self._source_subfolder)
 
-    def _configure_cmake(self):
-        cmake = CMake(self)
-        cmake.definitions["BUILD_TESTS"] = False  # example
-        cmake.configure(build_folder=self._build_subfolder)
-        return cmake
+    def _configure_meson(self):
+        meson = Meson(self)
+        
+        defs={
+            "cairo-tests" : "false",
+            "install-test-programs": "false"
+        }
+        for o in ["libkms", "intel", "radeon", "amdgpu","nouveau", "vmwgfx", "omap", "exynos",
+                  "freedreno", "tegra", "vc4", "etnaviv", "valgrind", "freedreno-kgsl", "udev"]:
+            defs[o] = "true" if getattr(self.options, o) else "false"            
+            
+        meson.configure(
+            defs = defs,
+            source_folder=self._source_subfolder,
+            build_folder=self._build_subfolder)
+        return meson
 
     def build(self):
-        cmake = self._configure_cmake()
-        cmake.build()
+        def _get_pc_files(package):
+            if package in self.deps_cpp_info.deps:
+                lib_path = self.deps_cpp_info[package].rootpath
+                for dirpath, _, filenames in os.walk(lib_path):
+                    for filename in filenames:
+                        if filename.endswith('.pc'):
+                            shutil.copyfile(os.path.join(dirpath, filename), filename)
+                            tools.replace_prefix_in_pc_file(filename, lib_path)
+                for dep in self.deps_cpp_info[package].public_deps:
+                    _get_pc_files(dep)
+        _get_pc_files('libpciaccess')
+        meson = self._configure_meson()
+        meson.build()
 
     def package(self):
-        self.copy(pattern="LICENSE", dst="licenses", src=self._source_subfolder)
-        cmake = self._configure_cmake()
-        cmake.install()
-        # If the CMakeLists.txt has a proper install method, the steps below may be redundant
-        # If so, you can just remove the lines below
-        include_folder = os.path.join(self._source_subfolder, "include")
-        self.copy(pattern="*", dst="include", src=include_folder)
-        self.copy(pattern="*.dll", dst="bin", keep_path=False)
-        self.copy(pattern="*.lib", dst="lib", keep_path=False)
-        self.copy(pattern="*.a", dst="lib", keep_path=False)
-        self.copy(pattern="*.so*", dst="lib", keep_path=False)
-        self.copy(pattern="*.dylib", dst="lib", keep_path=False)
+        meson = self._configure_meson()
+        meson.install()
 
     def package_info(self):
+        self.cpp_info.includedirs.append(os.path.join('include', 'libdrm'))
+        self.cpp_info.includedirs.append(os.path.join('include', 'libkms'))
         self.cpp_info.libs = tools.collect_libs(self)
