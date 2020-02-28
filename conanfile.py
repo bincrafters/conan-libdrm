@@ -32,7 +32,7 @@ class LibnameConan(ConanFile):
         "udev": [True, False]
     }
     default_options = {
-        "shared": False,
+        "shared": True,
         "fPIC": True,
         "libkms": True,
         "intel": True,
