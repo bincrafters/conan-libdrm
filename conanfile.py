@@ -56,9 +56,9 @@ class LibnameConan(ConanFile):
 
     def build_requirements(self):
         if not tools.which("meson"):
-            self.build_requires("meson/0.57.1")
+            self.build_requires("meson/0.59.0")
         if not tools.which('pkg-config'):
-            self.build_requires('pkgconf/1.7.3')
+            self.build_requires('pkgconf/1.7.4')
     
     def requirements(self):
         if self.options.intel:
